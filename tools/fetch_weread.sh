@@ -1,17 +1,76 @@
 #!/bin/bash
 # tools/fetch_weread.sh
 # 微信读书 API 快速查询辅助脚本 (适配官方网关网关版本)
-# 用法: ./fetch_weread.sh <命令> [参数]
+# 用法: ./fetch_weread.sh --confirm-private-data <命令> [参数]
 
-set -e
+set -euo pipefail
 
 # ========== 配置 ==========
-API_KEY="${WEREAD_API_KEY:-}"
-GATEWAY_URL="https://i.weread.qq.com/api/agent/gateway"
-SKILL_VERSION="2.0.0"
+readonly API_KEY="${WEREAD_API_KEY:-}"
+readonly GATEWAY_URL="https://i.weread.qq.com/api/agent/gateway"
+readonly SKILL_VERSION="2.0.0"
+readonly CONFIRMATION_FLAG="--confirm-private-data"
+
+DATA_ACCESS_CONFIRMED=false
+if [ "${1:-}" = "$CONFIRMATION_FLAG" ]; then
+  DATA_ACCESS_CONFIRMED=true
+  shift
+fi
+
+CMD="${1:-help}"
+
+data_scope_for_command() {
+  case "$1" in
+    shelf|books|user)
+      echo "书架列表与用户昵称"
+      ;;
+    stats|summary)
+      echo "阅读统计"
+      ;;
+    bookmarks|notes)
+      echo "指定书籍的划线笔记"
+      ;;
+    reviews|thoughts)
+      echo "指定书籍的个人想法与评论"
+      ;;
+    bookinfo|detail)
+      echo "指定书籍的书目信息"
+      ;;
+    progress)
+      echo "指定书籍的阅读进度"
+      ;;
+    dashboard|all)
+      echo "书架列表、用户昵称与阅读统计"
+      ;;
+    *)
+      echo "未知数据范围"
+      ;;
+  esac
+}
+
+is_network_command() {
+  case "$1" in
+    shelf|books|user|stats|summary|bookmarks|notes|reviews|thoughts|bookinfo|detail|progress|dashboard|all)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+show_privacy_notice() {
+  local data_scope
+  data_scope="$(data_scope_for_command "$CMD")"
+
+  echo "🔒 隐私提示：即将访问微信读书官方统一网关" >&2
+  echo "   目标：${GATEWAY_URL}" >&2
+  echo "   本次范围：${data_scope}" >&2
+  echo "   凭据：WEREAD_API_KEY 仅作为 Bearer Token 发往上述官方网关" >&2
+}
 
 # ========== 前置检查 ==========
-if [ -z "$API_KEY" ]; then
+if is_network_command "$CMD" && [ -z "$API_KEY" ]; then
   echo "❌ 错误: 未设置 WEREAD_API_KEY 环境变量"
   echo ""
   echo "请先获取你的微信读书 API Key："
@@ -21,6 +80,17 @@ if [ -z "$API_KEY" ]; then
   echo ""
   echo "然后运行: export WEREAD_API_KEY=wrk-你的密钥"
   exit 1
+fi
+
+if is_network_command "$CMD"; then
+  show_privacy_notice
+
+  if [ "$DATA_ACCESS_CONFIRMED" != true ]; then
+    echo "" >&2
+    echo "请求已停止。请先向用户说明上述数据范围并取得明确同意。" >&2
+    echo "确认后重新运行：$0 ${CONFIRMATION_FLAG} ${CMD} [参数]" >&2
+    exit 2
+  fi
 fi
 
 # 通用网关 POST 请求函数
@@ -50,9 +120,6 @@ fetch_gateway() {
         "$GATEWAY_URL"
     }
 }
-
-# ========== 命令路由 ==========
-CMD="${1:-help}"
 
 case "$CMD" in
 
@@ -139,12 +206,12 @@ case "$CMD" in
     ;;
 
   # 帮助
-  help|*)
+  help|-h|--help|*)
     echo "╔══════════════════════════════════════════════╗"
     echo "║  📊 WeRead Insight - 统一网关查询脚本        ║"
     echo "╚══════════════════════════════════════════════╝"
     echo ""
-    echo "用法: $0 <命令> [参数]"
+    echo "用法: $0 ${CONFIRMATION_FLAG} <命令> [参数]"
     echo ""
     echo "可用命令:"
     echo "  shelf       获取书架列表（含用户昵称 name 字段）"
@@ -157,6 +224,7 @@ case "$CMD" in
     echo "  help        显示此帮助"
     echo ""
     echo "前置条件: export WEREAD_API_KEY=wrk-你的密钥"
+    echo "隐私确认: 先向用户说明数据范围并取得明确同意，再传入 ${CONFIRMATION_FLAG}"
     ;;
 
 esac
