@@ -1,6 +1,20 @@
 ---
 name: weread-ai-brain
 description: 微信读书/WeRead 专用阅读数据与笔记分析 skill。仅当用户明确提到“微信读书”或“WeRead”，并请求生成微信读书看板、微信读书 HTML 看板、微信读书书籍分析、微信读书跨书关联、微信读书导出笔记、微信读书阅读人格/MBTI 时使用。会通过用户提供的 WEREAD_API_KEY 读取书架、阅读统计、划线和个人想法；导出本地文件前必须先说明内容与路径并取得用户确认。
+metadata:
+  openclaw:
+    requires:
+      env:
+        - WEREAD_API_KEY
+      bins:
+        - curl
+        - python3
+    primaryEnv: WEREAD_API_KEY
+    envVars:
+      - name: WEREAD_API_KEY
+        required: true
+        description: 微信读书官方 API Key；仅作为 Bearer Token 发送到 https://i.weread.qq.com/api/agent/gateway。
+    homepage: https://github.com/yamyeed/weread-ai-brain
 ---
 
 # WeRead AI Brain — 微信读书 AI 阅读外脑
@@ -36,6 +50,7 @@ description: 微信读书/WeRead 专用阅读数据与笔记分析 skill。仅�
 - **统一网关入口**：`https://i.weread.qq.com/api/agent/gateway`（POST）
 - **请求头**：`Authorization: Bearer {WEREAD_API_KEY}` 和 `Content-Type: application/json`
 - **请求体**：所有参数平铺在顶层 JSON，必须包含 `api_name` 和 `skill_version: 2.0.0`
+- **传输约束**：只允许 HTTPS，TLS 或 HTTP 失败时立即停止；不要降级协议、切换域名或以宽松参数重试。
 
 ### API 映射表
 
@@ -59,14 +74,6 @@ description: 微信读书/WeRead 专用阅读数据与笔记分析 skill。仅�
 ```
 
 脚本会在请求前再次输出微信读书官方网关地址和本次数据范围。不要把该确认参数写入别名、启动脚本或持久化配置。
-
-```bash
-# 示例
-curl -X POST "https://i.weread.qq.com/api/agent/gateway" \
-  -H "Authorization: Bearer $WEREAD_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"api_name": "/shelf/sync", "skill_version": "2.0.0"}'
-```
 
 ---
 

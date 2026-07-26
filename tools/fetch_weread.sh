@@ -8,6 +8,7 @@ set -euo pipefail
 # ========== 配置 ==========
 readonly API_KEY="${WEREAD_API_KEY:-}"
 readonly GATEWAY_URL="https://i.weread.qq.com/api/agent/gateway"
+readonly EXPECTED_GATEWAY_URL="https://i.weread.qq.com/api/agent/gateway"
 readonly SKILL_VERSION="2.0.0"
 readonly CONFIRMATION_FLAG="--confirm-private-data"
 
@@ -82,6 +83,16 @@ if is_network_command "$CMD" && [ -z "$API_KEY" ]; then
   exit 1
 fi
 
+if is_network_command "$CMD" && [ "$GATEWAY_URL" != "$EXPECTED_GATEWAY_URL" ]; then
+  echo "❌ 安全停止: 微信读书网关地址不在允许列表中" >&2
+  exit 1
+fi
+
+if is_network_command "$CMD" && [[ "$API_KEY" != wrk-* ]]; then
+  echo "❌ 安全停止: WEREAD_API_KEY 必须以 wrk- 开头" >&2
+  exit 1
+fi
+
 if is_network_command "$CMD"; then
   show_privacy_notice
 
@@ -107,18 +118,26 @@ fetch_gateway() {
   done
   payload="$payload}"
   
-  curl -s -f -X POST \
+  curl --silent \
+    --show-error \
+    --fail \
+    --proto '=https' \
+    --tlsv1.2 \
+    --connect-timeout 10 \
+    --max-time 30 \
+    --request POST \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "Content-Type: application/json" \
     -d "$payload" \
-    "$GATEWAY_URL" 2>/dev/null || {
-      # 降级尝试，有些环境 curl 对 ssl 握手或其它有报错，输出错误日志
-      curl -s -X POST \
-        -H "Authorization: Bearer ${API_KEY}" \
-        -H "Content-Type: application/json" \
-        -d "$payload" \
-        "$GATEWAY_URL"
-    }
+    "$GATEWAY_URL"
+}
+
+print_json_or_raw() {
+  local response="$1"
+
+  if ! printf '%s\n' "$response" | python3 -m json.tool 2>/dev/null; then
+    printf '%s\n' "$response"
+  fi
 }
 
 case "$CMD" in
@@ -126,7 +145,8 @@ case "$CMD" in
   # 书架列表（含用户昵称 name 字段）
   shelf|books|user)
     echo "📚 获取书架列表..."
-    fetch_gateway "/shelf/sync" | python3 -m json.tool 2>/dev/null || fetch_gateway "/shelf/sync"
+    response=$(fetch_gateway "/shelf/sync")
+    print_json_or_raw "$response"
     ;;
 
   # 阅读统计概要
@@ -137,7 +157,7 @@ case "$CMD" in
     if [ -z "$res" ] || echo "$res" | grep -q "errcode"; then
       res=$(fetch_gateway "/readdata/detail" "mode=1")
     fi
-    echo "$res" | python3 -m json.tool 2>/dev/null || echo "$res"
+    print_json_or_raw "$res"
     ;;
 
   # 指定书籍的划线笔记
@@ -149,7 +169,8 @@ case "$CMD" in
       exit 1
     fi
     echo "✍️ 获取书籍 [${BOOK_ID}] 的划线笔记..."
-    fetch_gateway "/book/bookmarklist" "bookId=${BOOK_ID}" | python3 -m json.tool 2>/dev/null || fetch_gateway "/book/bookmarklist" "bookId=${BOOK_ID}"
+    response=$(fetch_gateway "/book/bookmarklist" "bookId=${BOOK_ID}")
+    print_json_or_raw "$response"
     ;;
 
   # 指定书籍的想法/评论
@@ -160,7 +181,8 @@ case "$CMD" in
       exit 1
     fi
     echo "💬 获取书籍 [${BOOK_ID}] 的想法..."
-    fetch_gateway "/review/list/mine" "bookId=${BOOK_ID}" | python3 -m json.tool 2>/dev/null || fetch_gateway "/review/list/mine" "bookId=${BOOK_ID}"
+    response=$(fetch_gateway "/review/list/mine" "bookId=${BOOK_ID}")
+    print_json_or_raw "$response"
     ;;
 
   # 指定书籍的详细信息
@@ -171,7 +193,8 @@ case "$CMD" in
       exit 1
     fi
     echo "📖 获取书籍 [${BOOK_ID}] 详情..."
-    fetch_gateway "/book/info" "bookId=${BOOK_ID}" | python3 -m json.tool 2>/dev/null || fetch_gateway "/book/info" "bookId=${BOOK_ID}"
+    response=$(fetch_gateway "/book/info" "bookId=${BOOK_ID}")
+    print_json_or_raw "$response"
     ;;
 
   # 指定书籍的阅读进度
@@ -182,7 +205,8 @@ case "$CMD" in
       exit 1
     fi
     echo "📈 获取书籍 [${BOOK_ID}] 阅读进度..."
-    fetch_gateway "/book/getprogress" "bookId=${BOOK_ID}" | python3 -m json.tool 2>/dev/null || fetch_gateway "/book/getprogress" "bookId=${BOOK_ID}"
+    response=$(fetch_gateway "/book/getprogress" "bookId=${BOOK_ID}")
+    print_json_or_raw "$response"
     ;;
 
   # 全量数据拉取（供看板使用）
